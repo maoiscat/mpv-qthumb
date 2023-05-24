@@ -6,6 +6,8 @@ qthumb DOES NOT spwan real time thumbnails. it pre-caches a set of thumbnails wh
 
 This project is not fully tested, so you may encounter unkown bugs.
 
+![img](https://github.com/maoiscat/mpv-qthumb/blob/main/preview.jpg)
+
 ## Install
 
 1. download the source files as zip package.
@@ -18,7 +20,7 @@ Use the following lines to change options for qthumb.
 
 ```
 local opts = {width = 200, skip = 10}
-local json, err = utils.format_json(thumbOpts)
+local json, err = utils.format_json(opts)
 mp.commandv('script-message-to', 'qthumb', 'qthumb-set-param', json)
 ```
 
@@ -41,7 +43,7 @@ On the ui side, you can use these codes to check if thumbnails are generated.
 local param = {width, height, estSkip}
 local json, err = utils.format_json(thumbOpts)
 mp.register_script_message('qthumb-params', function(data)
-		thumbParam = utils.parse_json(data)
+		param = utils.parse_json(data)
 	end)
 ```
 
