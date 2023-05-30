@@ -2,9 +2,11 @@
 
 qthumb is a simple thumbnail generator that helps you to show small thumbnails over an osc/ui in mpv.
 
-qthumb DOES NOT spwan real time thumbnails. it pre-caches a set of thumbnails when files are loaded.
+qthumb will NOT spwan real time thumbnails. when loading a file, it scans the file with a preconfigured skip time, and generates cached images as thumbnails. as a result, it may consume more memery but save some cpu time.
 
-This project is not fully tested, so you may encounter unkown bugs.
+qthumb only works on windows by now, because the input-ipc-server option on linux actually creates a socket, rather than a pipe, which means the lua io functions cannot operate this file directly.
+
+qthumb is not fully tested. please feel free to report bugs.
 
 ![img](https://github.com/maoiscat/mpv-qthumb/blob/main/preview.jpg)
 
