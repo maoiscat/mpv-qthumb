@@ -17,16 +17,8 @@ local mpvPath, tmpPath, tmpFile, oid, width, height, skip -- copy of opts
 local stride, estSkip	-- stride: overlay param, eqs 4*width, estSkip: estimate real skip value due to keyframe seeking methods
 local pHost, pClient, fClient	-- host pipe name, client pipe name, client pipe file handle
 local count, times, data, pData	-- total thumb count, thumb time, thumb data, thumb data reference(pointer)
-local autoPipe = {	-- only tested on windows
-		windows = '\\\\.\\pipe\\mpv\\' .. pid,
-		linux = '/tmp/mpv-' .. pid,
-		macos = '/tmp/mpv-' .. pid,
-		}
-local autoPath = {	-- only tested on windows
-		windows = {os.getenv('TEMP') .. '\\', os.getenv('windir') .. '\\TEMP\\', '.\\'},
-		linux = {'/proc/', '/tmp/', '/var/', './'},
-		macos = {'/proc/', '/tmp/', '/var/', './'},
-		}
+local autoPipe = '\\\\.\\pipe\\mpv\\' .. pid
+local autoPath = os.getenv('TEMP') .. '\\'
 local args = { mpvPath, fname, tmpFile, vf, inputipc, scriptopts,	-- volatile params, others are fixed params
 		'--script=' .. mp.get_script_directory() ..'/qthumbclient.lua', '--ovc=rawvideo', '--of=image2', '--ofopts=update=1', '--pause', '--no-config', '--load-scripts=no', '--really-quiet', '--no-terminal', '--osc=no', '--ytdl=no', '--load-stats-overlay=no', '--load-osd-console=no', '--load-auto-profiles=no', '--no-sub', '--no-audio'
 		}
@@ -47,6 +39,7 @@ end
 
 local function SMSetParam(data)		-- set opts params using script message, data is in json format
 	local var = utils.parse_json(data)
+	print(utils.to_string(var))
 	QthumbSetParam(var)
 end
 
@@ -56,7 +49,7 @@ local function Cleanup()			-- remove temp files
 	end
 end
 
-local function GetOS()				-- only tested on windows
+local function GetOS()				-- get current system type
 	local pattern = package.cpath:match('[.](%a+)')
 	if pattern == 'dll' then
 		return 'windows'
@@ -77,22 +70,16 @@ local function FileLoaded()
 	width = math.floor(opts.width+0.5)
 	skip = opts.skip
 	count, times, data, pData =0, {}, {}, {}
-	-- if tmpPath is nil, it will use the first available path in autoPath 
-	local path = tmpPath or autoPath[GetOS()]
-	for k, v in ipairs(path) do
-		tmpFile = string.format('%smpv-%d.out', v, pid)
-		local file = io.open(tmpFile, 'w')
-		if file then
-			tmpPath = v
-			file:close()
-			break
-		end
-		tmpFile = nil
-	end
-	if not tmpFile then
+	-- if tmpPath is nil, it will use autoPath 
+	local path = tmpPath or autoPath
+	tmpFile = string.format('%smpv-%d.out', path, pid)
+	local file = io.open(tmpFile, 'w')
+	if not file then
 		mp.msg.error('Cannot creat temp file.')
+		tmpFile = nil
 		return
 	end
+	file:close()
 	
 	local fname = mp.get_property_native('path')
 	if not fname then
@@ -176,7 +163,7 @@ mp.register_script_message('qthumb-hide', QthumbHide)
 mp.register_script_message('qthumb-set-param', SMSetParam)
 
 -- when initialized, the host mpv starts an input ipc server to interact with the client
-local pipe = autoPipe[GetOS()]
+local pipe = autoPipe
 pClient = pipe .. '.client'
 pHost = pipe .. '.host'
 mp.commandv('set', 'input-ipc-server', pHost)
