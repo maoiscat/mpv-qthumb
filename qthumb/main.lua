@@ -1,5 +1,6 @@
 -- qthumb is a simple thumbnail generator for mpv
 -- maoiscat: valarmor@163.com
+-- ver 1.1
 
 local utils = require 'mp.utils'
 
@@ -15,6 +16,7 @@ local opts = {			-- options are applied only when a new file is loaded
 local pid = utils.getpid()	-- use pid as unique pattern
 local mpvPath, tmpPath, tmpFile, oid, width, height, skip -- copy of opts
 local stride, estSkip	-- stride: overlay param, eqs 4*width, estSkip: estimate real skip value due to keyframe seeking methods
+local visible = false	-- if thumbnail is visible
 local pHost, pClient, fClient	-- host pipe name, client pipe name, client pipe file handle
 local count, times, data, pData	-- total thumb count, thumb time, thumb data, thumb data reference(pointer)
 local autoPipe = '\\\\.\\pipe\\mpv\\' .. pid
@@ -46,6 +48,10 @@ end
 local function Cleanup()			-- remove temp files
 	if tmpFile then
 		os.remove(tmpFile)
+	end
+	if visible then
+		mp.command_native({name = 'overlay-remove', id = oid})
+		visible = false
 	end
 end
 
@@ -122,15 +128,27 @@ local function GetData(time)	-- collect thumbnail data when ready, called by cli
 	mp.commandv('script-message', 'qthumb-params', json)	-- to tell ui scripts that there are new params
 end
 
+local function QthumbHide()	-- there is show, there is hide
+	if visible and oid then
+		mp.command_native({name = 'overlay-remove', id = oid})
+		visible = false
+	end
+end
+
 function QthumbShow(x, y, second)	-- generate a thumb at (x, y) position around (second) time
-	if not times[1] then return end	-- times[1] == nil means no thumb at all
+	if count == 0 then return end	-- no thumbs at all
 	second = tonumber(second)
+	
+	if times[count] < second then	-- no thumnbs at given time
+		QthumbHide()
+		return
+	end
+	
 	local begin = math.max(1, math.floor(second / estSkip))	-- estimate the index among all thumbnails for faster search
-	local ind
-	if not times[begin] or times[begin] > second then	-- when given seconds is greater than estimated time, search downside
-		ind = 1
+	local ind = 1
+	if times[begin] > second then	-- when given seconds is greater than estimated time, search downside
 		for i = begin, 1, -1 do
-			if times[i] and times[i] <= second then
+			if times[i] <= second then
 				ind = i
 				break
 			end
@@ -146,12 +164,7 @@ function QthumbShow(x, y, second)	-- generate a thumb at (x, y) position around 
 	end
 	-- then a thumbnail is generated
 	mp.command_native({name = 'overlay-add', id = oid, x = x, y = y, file = pData[ind], offset = 28, fmt = 'bgra', w = width, h = height, stride = stride})
-end
-
-local function QthumbHide(x, y, second)	-- there is show, there is hide
-	if oid then
-		mp.command_native({name = 'overlay-remove', id = oid})
-	end
+	visible = true
 end
 
 -- Some event handlers
