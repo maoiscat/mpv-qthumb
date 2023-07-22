@@ -22,7 +22,10 @@ local count, times, data, pData	-- total thumb count, thumb time, thumb data, th
 local autoPipe = '\\\\.\\pipe\\mpv\\' .. pid
 local autoPath = os.getenv('TEMP') .. '\\'
 local args = { mpvPath, fname, tmpFile, vf, inputipc, scriptopts,	-- volatile params, others are fixed params
-		'--script=' .. mp.get_script_directory() ..'/qthumbclient.lua', '--ovc=rawvideo', '--of=image2', '--ofopts=update=1', '--pause', '--no-config', '--load-scripts=no', '--really-quiet', '--no-terminal', '--osc=no', '--ytdl=no', '--load-stats-overlay=no', '--load-osd-console=no', '--load-auto-profiles=no', '--no-sub', '--no-audio'
+		'--script=' .. mp.get_script_directory() ..'/qthumbclient.lua',			'--ovc=rawvideo',			'--of=image2',	'--ofopts=update=1',	'--pause',
+		'--no-config',	'--load-scripts=no',		'--really-quiet',			'--no-terminal',			'--osc=no',
+		'--ytdl=no',	'--load-stats-overlay=no',	'--load-osd-console=no',	'--load-auto-profiles=no',	'--no-sub',
+		'--no-audio',	'--priority=idle'
 		}
 
 function QthumbSetParam(options)	-- set opts params, allow partial settings
