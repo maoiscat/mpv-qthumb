@@ -1,3 +1,7 @@
+update:
+
+ver 1.1		some improvemnts on qthumbShow()
+
 # mpv-qthumb
 
 qthumb is a simple thumbnail generator that helps you to show small thumbnails over an osc/ui in mpv.
@@ -15,8 +19,11 @@ qthumb is not fully tested. please feel free to report bugs.
 1. download the source files as zip package.
 2. extrac the qthumb folder to ''\~\~/scripts'' folder of your mpv.
 3. DO NOT rename the folder or any script within.
+4. this script will autoload and run
 
 ## Usage
+
+This script works with a custom osd/ui script.
 
 Use the following lines to change options for qthumb. 
 
@@ -39,17 +46,21 @@ skip = 10		-- seconds between two thumbnails, smaller means more thumbnails
 
 You can apply your options at any time, but it only takes effect on loading a new file.
 
-On the ui side, you can use these codes to check if thumbnails are generated.
+To check thumb status, use these to set up a ''param'' var to check thumbnail params
 
 ```
-local param = {width, height, estSkip}
-local json, err = utils.format_json(thumbOpts)
-mp.register_script_message('qthumb-params', function(data)
-		param = utils.parse_json(data)
-	end)
+local param
+mp.register_script_message('qthumb-params', function(json) param = utils.parse_json(json) end)
 ```
 
-Here width and height are real geometries of the thumbnails. estSkip is the average estimated skip parameter. This qthumb-params message will generate when a new frame of thumbnail is done, which may change the value of estSkip.
+currently param includes:
+```
+	width	-- thumbnail real width
+	height	-- thumbnail real height
+	estSkip	-- estimated average skip time between thumbnail frames
+```
+
+This qthumb-params message will generate when a new frame of thumbnail is done, which may change the value of estSkip.
 
 To show a thumbnail, use
 
@@ -57,7 +68,7 @@ To show a thumbnail, use
 mp.commandv('script-message-to', 'qthumb', 'qthumb-show', x, y, seconds)
 ```
 
-here x, y are integer, while seconds can be decimal.
+here x, y are INTEGER, while seconds can be decimal.
 
 To hide it, just use
 
