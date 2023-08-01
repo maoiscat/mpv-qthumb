@@ -1,14 +1,16 @@
 update:
 
+ver 2.0		use a seperate file to simulate ipc connection. this script now works in both windows and linux.
+
 ver 1.1		some improvemnts on qthumbShow()
 
 # mpv-qthumb
 
 qthumb is a simple thumbnail generator that helps you to show small thumbnails over an osc/ui in mpv.
 
-qthumb will NOT spwan real time thumbnails. when loading a file, it scans the file with a preconfigured skip time, and generates cached images as thumbnails. as a result, it may consume more memery but save some cpu time.
+qthumb will **NOT** spawn real time thumbnails. when loading a file, it scans the file with a preconfigured skip time, and generates cached images as thumbnails.
 
-qthumb only works on windows by now, because the input-ipc-server option on linux actually creates a socket, rather than a pipe, which means the lua io functions cannot operate this file directly.
+qthumb needs **mpv version 0.35 and higher**. it uses an non-standard way to get the address of a variable, which is not implemented in standard lua.
 
 qthumb is not fully tested. please feel free to report bugs.
 
@@ -68,7 +70,7 @@ To show a thumbnail, use
 mp.commandv('script-message-to', 'qthumb', 'qthumb-show', x, y, seconds)
 ```
 
-here x, y are INTEGER, while seconds can be decimal.
+here x, y are **INTEGERs**, while seconds can be decimal.
 
 To hide it, just use
 
