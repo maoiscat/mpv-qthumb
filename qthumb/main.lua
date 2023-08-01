@@ -1,12 +1,12 @@
 -- qthumb is a simple thumbnail generator for mpv
--- maoiscat: valarmor@163.com
--- ver 1.1
+-- by maoiscat
+-- ver 2.0
 
 local utils = require 'mp.utils'
 
 local opts = {			-- options are applied only when a new file is loaded
 	mpvPath = 'mpv',	-- full path or single file name. file extension does not matter
-	tmpPath = nil,		-- temp file path, end with / or \\. nil for auto detection
+	tmpPath = nil,		-- temp file path, end with '\' or '//'. nil for auto detection
 	oid = 10,			-- overlay id
 	width = 200,		-- thumb width
 	height = 200,		-- thumb height, not used currently
@@ -14,51 +14,32 @@ local opts = {			-- options are applied only when a new file is loaded
 	}
 
 local pid = utils.getpid()	-- use pid as unique pattern
-local mpvPath, tmpPath, tmpFile, oid, width, height, skip -- copy of opts
-local stride, estSkip	-- stride: overlay param, eqs 4*width, estSkip: estimate real skip value due to keyframe seeking methods
-local visible = false	-- if thumbnail is visible
-local pHost, pClient, fClient	-- host pipe name, client pipe name, client pipe file handle
-local count, times, data, pData	-- total thumb count, thumb time, thumb data, thumb data reference(pointer)
-local autoPipe = '\\\\.\\pipe\\mpv\\' .. pid
-local autoPath = os.getenv('TEMP') .. '\\'
-local args = { mpvPath, fname, tmpFile, vf, inputipc, scriptopts,	-- volatile params, others are fixed params
-		'--script=' .. mp.get_script_directory() ..'/qthumbclient.lua',			'--ovc=rawvideo',			'--of=image2',	'--ofopts=update=1',	'--pause',
-		'--no-config',	'--load-scripts=no',		'--really-quiet',			'--no-terminal',			'--osc=no',
-		'--ytdl=no',	'--load-stats-overlay=no',	'--load-osd-console=no',	'--load-auto-profiles=no',	'--no-sub',
-		'--no-audio',	'--priority=idle'
+local ipcTimer = nil		-- a timer to operate ipcFile
+local ipcTick = 0.05		-- ipc timer interval
+local ipcFile				-- ipc file for communication, tmpFile.ipc
+local mpvPath, tmpPath, oid, width, height, skip -- copy of opts
+local tmpFile				-- prefix of temp files
+local outFile				-- output file, tmpFile.out
+local stride				-- overlay parameter, eqs 4*width
+local estSkip				-- estimate real skip value due to keyframe seeking methods
+local visible = false		-- thumbnail visibility
+local pHost, pClient		-- host pipe name, client pipe name
+local count					-- total thumbnail count
+local times					-- thumbnail time tab
+local data					-- thumbnail data
+local pData					-- thumb data reference(pointer)
+local autoPath
+
+local args = { mpvPath, fname, tmpFile, vf, scriptopts,
+		'--script=' .. mp.get_script_directory() ..'/qthumbclient.lua',
+		'--ovc=rawvideo',	'--of=image2',	'--ofopts=update=1',	'--pause',	'--idle',	
+		'--no-config',		'--no-ytdl',	'--no-sub',	'--no-audio',	'--no-osc',
+		'--load-stats-overlay=no',	'--load-osd-console=no',	'--load-auto-profiles=no',	'--load-scripts=no',
+		'--really-quiet',		'--no-terminal',			
 		}
 
-function QthumbSetParam(options)	-- set opts params, allow partial settings
-	for k, v in pairs(options) do
-		opts[k] = v
-	end
-end
-
-function QthumbGetParam()			-- get real params
-	return {
-		width = width,
-		height = height,
-		estSkip = estSkip
-		}
-end
-
-local function SMSetParam(data)		-- set opts params using script message, data is in json format
-	local var = utils.parse_json(data)
-	print(utils.to_string(var))
-	QthumbSetParam(var)
-end
-
-local function Cleanup()			-- remove temp files
-	if tmpFile then
-		os.remove(tmpFile)
-	end
-	if visible then
-		mp.command_native({name = 'overlay-remove', id = oid})
-		visible = false
-	end
-end
-
-local function GetOS()				-- get current system type
+-- get current system type
+local function GetOS()
 	local pattern = package.cpath:match('[.](%a+)')
 	if pattern == 'dll' then
 		return 'windows'
@@ -70,84 +51,106 @@ local function GetOS()				-- get current system type
 	return nil
 end
 
-local function FileLoaded()
-	Cleanup()
-	-- initialize working vars
-	mpvPath = opts.mpvPath
-	tmpPath = opts.tmpPath
-	oid = opts.oid
-	width = math.floor(opts.width+0.5)
-	skip = opts.skip
-	count, times, data, pData =0, {}, {}, {}
-	-- if tmpPath is nil, it will use autoPath 
-	local path = tmpPath or autoPath
-	tmpFile = string.format('%smpv-%d.out', path, pid)
-	local file = io.open(tmpFile, 'w')
-	if not file then
-		mp.msg.error('Cannot creat temp file.')
-		tmpFile = nil
-		return
-	end
-	file:close()
-	
-	local fname = mp.get_property_native('path')
-	if not fname then
-		mp.msg.error('No file name.')
-		return
-	end
-	-- it is strange that some times video-params don't have aspect ratio 
-	local vp = mp.get_property_native('video-params')
-	if not (vp and vp.w and vp.w>0 and vp.h and vp.h>0) then
-		mp.msg.error('Bad video params.')
-		return
-	end
-	height = math.floor(vp.h / vp.w * width + 0.5)
-	stride = 4*width
-	-- set arguments for client mpv process. the client writes images to a temp file, from which the host reads as thumbnails
-	args[1] = mpvPath
-	args[2] = fname
-	args[3] = '--o=' .. tmpFile
-	args[4] = string.format('--vf=scale=w=%d:h=%d,format=bgra', width, height)
-	args[5] = '--input-ipc-server=' .. pClient
-	args[6] = '--script-opts=host=' .. pHost .. ',skip=' .. skip
-
-	mp.command_native_async({name = 'subprocess', args = args})
+local system = GetOS()
+if system == 'windows' then
+	autoPath = os.getenv('TEMP') .. '\\'
+elseif system == 'linux' then
+	autoPath = '/tmp/'
+elseif system == 'macos' then
+	autoPath = os.getenv('TMPDIR')	-- not sure if it works
+else
+	mp.msg.error('Unknown os type')
+	return
 end
 
-local function GetData(time)	-- collect thumbnail data when ready, called by client from script message
+
+-- set option params
+-- allow partial settings
+function QthumbSetParam(options)
+	for k, v in pairs(options) do
+		opts[k] = v
+	end
+end
+
+-- set opts params using script message, data is in json format
+local function SetParam2(data)
+	local var = utils.parse_json(data)
+	print(utils.to_string(var))
+	QthumbSetParam(var)
+end
+
+-- get real thumbnail params
+function QthumbGetParam()
+	return {
+		width = width,
+		height = height,
+		estSkip = estSkip
+		}
+end
+
+-- remove temp files
+local function Cleanup()
+	if ipcTimer then
+		ipcTimer:kill()
+		ipcTimer = nil
+	end
+	os.remove(outFile)
+	os.remove(ipcFile)
+end
+
+-- collect thumbnail data
+local function GetData(time)
 	count = count + 1
 	times[count] = tonumber(time)
-	estSkip = (time + skip) / count -- average estimated skip may change as more data are captured
-	
-	local f = io.open(tmpFile, 'rb')	-- read the temp file as a frame of thumbnails
-	data[count] = f:read('*a')
+	-- average estimated skip may change as more data are captured
+	estSkip = (time + skip) / count
+	-- read the temp file as a frame of thumbnails
+	local file = io.open(outFile, 'rb')
+	data[count] = file:read('*a')
+	file:close()
 	pData[count] = string.format('&%p', data[count])
-	f:close()
-
-	local p = io.open(pClient, 'w')		-- to notify the client to generate next thumbnail frame
-	p:write('script-message-to qthumbclient qthumb-next\n')
-	p:close()
-	local json, err = utils.format_json(QthumbGetParam())
-	mp.commandv('script-message', 'qthumb-params', json)	-- to tell ui scripts that there are new params
 end
 
-local function QthumbHide()	-- there is show, there is hide
-	if visible and oid then
-		mp.command_native({name = 'overlay-remove', id = oid})
-		visible = false
+local function IpcControl()
+	local file = io.open(ipcFile, 'r')
+	local subject = file:read('*l')
+	local info = file:read('*l')
+	file:close()
+	-- sometimes got nil info, ignore
+	if not (subject and info) then return end
+	-- check if client is ready
+	if subject == 'host' then return end
+	-- check if client exits, reuse the last thumb to complete the timeline
+	if info == 'end' then
+		info = mp.get_property_native('duration')
+		GetData(info)
+		ipcTimer:kill()
+		ipcTimer = nil
+		return
 	end
+	-- otherwise get thumbnail data
+	GetData(info)
+	-- to tell ui scripts that there are new params
+	local json, err = utils.format_json(QthumbGetParam())
+	mp.commandv('script-message', 'qthumb-params', json)
+	-- to tell client to get next thumb
+	file = io.open(ipcFile, 'w')
+	file:write('host\nnext')
+	file:close()
 end
 
-function QthumbShow(x, y, second)	-- generate a thumb at (x, y) position around (second) time
-	if count == 0 then return end	-- no thumbs at all
+-- Show thumbnail of (second) time at (x, y) position
+function QthumbShow(x, y, second)
+	-- check if there are thumbnails
+	if count == 0 then return end
 	second = tonumber(second)
-	
-	if times[count] < second then	-- no thumnbs at given time
+	-- check if there are thumbnails at given time
+	if times[count] < second then
 		QthumbHide()
 		return
 	end
-	
-	local begin = math.max(1, math.floor(second / estSkip))	-- estimate the index among all thumbnails for faster search
+	-- estimate the index among all thumbnails for faster search
+	local begin = math.max(1, math.floor(second / estSkip))
 	local ind = 1
 	if times[begin] > second then	-- when given seconds is greater than estimated time, search downside
 		for i = begin, 1, -1 do
@@ -165,21 +168,86 @@ function QthumbShow(x, y, second)	-- generate a thumb at (x, y) position around 
 			end
 		end
 	end
-	-- then a thumbnail is generated
+	-- show the thumb
 	mp.command_native({name = 'overlay-add', id = oid, x = x, y = y, file = pData[ind], offset = 28, fmt = 'bgra', w = width, h = height, stride = stride})
 	visible = true
+end
+
+-- Hide thumbnail
+function QthumbHide()
+	if visible and oid then
+		mp.command_native({name = 'overlay-remove', id = oid})
+		visible = false
+	end
+end
+
+local function FileLoaded()
+	QthumbHide()
+	-- initialize working vars
+	mpvPath = opts.mpvPath
+	tmpPath = opts.tmpPath
+	oid = opts.oid
+	width = math.floor(opts.width+0.5)
+	skip = opts.skip
+	count, times, data, pData =0, {}, {}, {}
+	-- if tmpPath is nil, use autoPath 
+	local path = tmpPath or autoPath
+	tmpFile = string.format('%smpv-%d', path, pid)
+	-- check output file
+	outFile = tmpFile .. '.out'
+	local file = io.open(outFile, 'w')
+	if not file then
+		mp.msg.error('Cannot creat temp file.')
+		outFile = nil
+		return
+	end
+	file:close()
+	-- check ipc file
+	ipcFile = tmpFile .. '.ipc'	
+	local file = io.open(ipcFile, 'w')
+	if not file then
+		mp.msg.error('Cannot creat ipc file.')
+		ipcFile = nil
+		return
+	end
+	file:write('host\ninit')
+	file:close()
+	-- check open file name
+	local fileName = mp.get_property_native('path')
+	if not fileName then
+		mp.msg.error('No file name.')
+		return
+	end
+	-- start a timer for ipc control
+	ipcTimer = mp.add_periodic_timer(ipcTick, IpcControl)
+	if not ipcTimer then
+		mp.msg.error('IPC control timer error.')
+		return
+	end
+	-- determine video aspect
+	-- it is strange that some times video-params don't have aspect ratio param
+	-- need to calculate 
+	local vp = mp.get_property_native('video-params')
+	if not (vp and vp.w and vp.w>0 and vp.h and vp.h>0) then
+		mp.msg.error('Bad video params.')
+		return
+	end
+	height = math.floor(vp.h / vp.w * width + 0.5)
+	stride = 4*width
+	-- set arguments for client mpv process. the client writes images to a temp file, from which the host reads as thumbnails
+	args[1] = mpvPath
+	args[2] = fileName
+	args[3] = '--o=' .. outFile
+	args[4] = string.format('--vf=scale=w=%d:h=%d,format=bgra', width, height)
+	args[5] = '--script-opts=qthumb_skip=' .. skip .. ',qthumb_ipc=' .. ipcFile
+
+	mp.command_native_async({name = 'subprocess', args = args})
 end
 
 -- Some event handlers
 mp.register_event('file-loaded', FileLoaded)
 mp.register_event('shutdown', Cleanup)
-mp.register_script_message('qthumb-get-data', GetData)
 mp.register_script_message('qthumb-show', QthumbShow)
 mp.register_script_message('qthumb-hide', QthumbHide)
-mp.register_script_message('qthumb-set-param', SMSetParam)
-
--- when initialized, the host mpv starts an input ipc server to interact with the client
-local pipe = autoPipe
-pClient = pipe .. '.client'
-pHost = pipe .. '.host'
-mp.commandv('set', 'input-ipc-server', pHost)
+mp.register_script_message('qthumb-get-data', GetData)
+mp.register_script_message('qthumb-set-param', SetParam2)
