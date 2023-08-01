@@ -124,8 +124,7 @@ local function IpcControl()
 	if info == 'end' then
 		info = mp.get_property_native('duration')
 		GetData(info)
-		ipcTimer:kill()
-		ipcTimer = nil
+		Cleanup()
 		return
 	end
 	-- otherwise get thumbnail data
