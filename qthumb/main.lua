@@ -113,29 +113,34 @@ end
 
 local function IpcControl()
 	local file = io.open(ipcFile, 'r')
+	if not file then return end
 	local subject = file:read('*l')
 	local info = file:read('*l')
+	local time
 	file:close()
 	-- sometimes got nil info, ignore
 	if not (subject and info) then return end
-	-- check if client is ready
-	if subject == 'host' then return end
-	-- check if client exits, reuse the last thumb to complete the timeline
+	-- check if client says something
+	if subject ~= 'client' then return end
+	-- if client exits, use the last thumb to complete the timeline
 	if info == 'end' then
-		info = mp.get_property_native('duration')
-		GetData(info)
-		Cleanup()
-		return
+		time = mp.get_property_native('duration')
+	else
+		time = info
 	end
-	-- otherwise get thumbnail data
-	GetData(info)
-	-- to tell ui scripts that there are new params
+	if time then GetData(time) end
+	-- to tell ui scripts to update
 	local json, err = utils.format_json(QthumbGetParam())
 	mp.commandv('script-message', 'qthumb-params', json)
-	-- to tell client to get next thumb
-	file = io.open(ipcFile, 'w')
-	file:write('host\nnext')
-	file:close()
+	if info == 'end' then
+		-- all thumbs got
+		Cleanup()
+	else
+		-- tell client to get next thumb
+		file = io.open(ipcFile, 'w')
+		file:write('host\nnext')
+		file:close()
+	end
 end
 
 -- Show thumbnail of (second) time at (x, y) position

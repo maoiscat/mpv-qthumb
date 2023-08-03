@@ -6,19 +6,18 @@ local thumbGet = false
 local spwan = false
 local skip = mp.get_opt('qthumb_skip')
 local ipcFile = mp.get_opt('qthumb_ipc')
-local ipcInfo
 local ipcTimer = nil
 local ipcTick = 0.05
 
 local function IpcControl()
 	if isSeeking then return end
 	local file = io.open(ipcFile, 'r')
+	if not file then return end
 	local subject = file:read('*l')
 	local info = file:read('*l')
 	file:close()
 	if not (info and subject) then return end
-	if subject == 'client' then return end
-	-- subject = host
+	if subject ~= 'host' then return end
 	if thumbGet then
 		-- seek to next time pos
 		isSeeking = true
@@ -26,13 +25,13 @@ local function IpcControl()
 		mp.commandv('seek', skip)	-- relative seeking is much faster, though poor in accuracy
 	else
 		-- notify the host to get thumb
-		ipcInfo = mp.get_property('time-pos')
-		if not ipcInfo then ipcInfo = 'end' end
+		info = mp.get_property('time-pos')
+		if not info then info = 'end' end
 		local file = io.open(ipcFile, 'w')
-		file:write('client\n' .. ipcInfo)
+		file:write('client\n' .. info)
 		file:close()
 		thumbGet = true
-		if ipcInfo == 'end' then
+		if info == 'end' then
 			mp.commandv('quit')
 		end
 	end
